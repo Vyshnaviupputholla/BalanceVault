@@ -1,0 +1,29 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Node dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+
+# Vercel local files
+.vercel/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+# Local AI agent files
+.agents/
+.claude/
+.windsurf/

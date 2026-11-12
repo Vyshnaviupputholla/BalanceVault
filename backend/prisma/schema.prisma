@@ -1,0 +1,155 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum AccountType {
+  SAVINGS
+  CURRENT
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+}
+
+enum TransactionStatus {
+  COMPLETED
+  FAILED
+}
+
+enum EntryDirection {
+  DEBIT
+  CREDIT
+}
+
+model User {
+  id               String          @id @default(uuid()) @db.Uuid
+  fullName         String
+  email            String          @unique
+  passwordHash     String
+  role             UserRole        @default(CUSTOMER)
+  status           UserStatus      @default(PENDING)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  accounts         Account[]
+  accountRequests  AccountRequest[] @relation("RequestOwner")
+  reviewedRequests AccountRequest[] @relation("RequestReviewer")
+  transactions     LedgerTransaction[]
+  auditLogs        AuditLog[]
+  refreshTokens    RefreshToken[]
+}
+
+model Account {
+  id            String        @id @default(uuid()) @db.Uuid
+  ownerId       String        @db.Uuid
+  accountNumber String        @unique
+  accountType   AccountType
+  status        AccountStatus @default(PENDING)
+  currency      String        @default("INR")
+  balance       Decimal       @default(0) @db.Decimal(18, 2)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  ledgerEntries LedgerEntry[]
+}
+
+model AccountRequest {
+  id            String        @id @default(uuid()) @db.Uuid
+  requestedById String        @db.Uuid
+  reviewedById  String?       @db.Uuid
+  accountType   AccountType
+  status        RequestStatus @default(PENDING)
+  reviewNote    String?
+  createdAt     DateTime      @default(now())
+  reviewedAt    DateTime?
+
+  requestedBy   User          @relation("RequestOwner", fields: [requestedById], references: [id], onDelete: Restrict)
+  reviewedBy    User?         @relation("RequestReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+}
+
+model LedgerTransaction {
+  id             String            @id @default(uuid()) @db.Uuid
+  idempotencyKey String            @unique
+  type           TransactionType
+  status         TransactionStatus @default(COMPLETED)
+  createdById    String            @db.Uuid
+  description    String?
+  createdAt      DateTime          @default(now())
+
+  createdBy      User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  entries        LedgerEntry[]
+}
+
+model LedgerEntry {
+  id            String         @id @default(uuid()) @db.Uuid
+  transactionId String         @db.Uuid
+  accountId     String         @db.Uuid
+  amount        Decimal        @db.Decimal(18, 2)
+  direction     EntryDirection
+  createdAt     DateTime       @default(now())
+
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  account       Account           @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([accountId, createdAt])
+  @@index([transactionId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String?  @db.Uuid
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
