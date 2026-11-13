@@ -1,8 +1,7 @@
 
 import { useState } from "react";
 import "./App.css";
-
-const API_URL = "http://localhost:5000";
+const API_URL = "https://balancevault-qg9a.onrender.com";
 
 function App() {
   const [email, setEmail] = useState("");
