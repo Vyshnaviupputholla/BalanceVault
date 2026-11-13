@@ -7,11 +7,13 @@ const crypto = require("crypto");
 
 const router = express.Router();
 
-// All admin routes require authentication and ADMIN role
+// All routes require an authenticated ADMIN
 router.use(authenticateToken);
 router.use(authorizeAdmin);
 
-// 1. View all pending customers
+// ==========================================
+// 1. GET ALL PENDING CUSTOMERS
+// ==========================================
 router.get("/pending-users", async (req, res) => {
   try {
     const users = await prisma.user.findMany({
@@ -36,7 +38,7 @@ router.get("/pending-users", async (req, res) => {
       users
     });
   } catch (error) {
-    console.error("Pending users error:", error.message);
+    console.error("Pending users error:", error);
 
     return res.status(500).json({
       message: "Unable to retrieve pending users"
@@ -44,13 +46,13 @@ router.get("/pending-users", async (req, res) => {
   }
 });
 
-
-// 2. Approve a pending customer
+// ==========================================
+// 2. APPROVE PENDING CUSTOMER
+// ==========================================
 router.patch("/approve-user/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // Check whether the user exists and is still pending
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.user.updateMany({
         where: {
@@ -67,7 +69,6 @@ router.patch("/approve-user/:userId", async (req, res) => {
         return false;
       }
 
-      // Record the administrator's action
       await tx.auditLog.create({
         data: {
           actorUserId: req.user.id,
@@ -82,7 +83,7 @@ router.patch("/approve-user/:userId", async (req, res) => {
 
     if (!result) {
       return res.status(404).json({
-        message: "Pending customer not found"
+        message: "Pending customer not found or already approved"
       });
     }
 
@@ -90,9 +91,8 @@ router.patch("/approve-user/:userId", async (req, res) => {
       message: "Customer approved successfully",
       userId
     });
-
   } catch (error) {
-    console.error("User approval error:", error.message);
+    console.error("Customer approval error:", error);
 
     return res.status(500).json({
       message: "Unable to approve customer"
@@ -100,88 +100,9 @@ router.patch("/approve-user/:userId", async (req, res) => {
   }
 });
 
-
-// 3. Approve a customer account request
-router.patch("/approve-account/:requestId", async (req, res) => {
-  try {
-    const { requestId } = req.params;
-
-    const result = await prisma.$transaction(async (tx) => {
-      // Find the pending account request
-      const accountRequest = await tx.accountRequest.findUnique({
-        where: { id: requestId }
-      });
-
-      if (!accountRequest || accountRequest.status !== "PENDING") {
-        return null;
-      }
-
-      // Mark the request as approved
-      const updated = await tx.accountRequest.updateMany({
-        where: {
-          id: requestId,
-          status: "PENDING"
-        },
-        data: {
-          status: "APPROVED",
-          reviewedById: req.user.id
-        }
-      });
-
-      if (updated.count !== 1) {
-        return null;
-      }
-
-      // Generate a unique account number
-      const accountNumber =
-        "BV" + crypto.randomBytes(8).toString("hex").toUpperCase();
-
-      // Create the bank account
-      const account = await tx.account.create({
-        data: {
-          ownerId: accountRequest.requestedById,
-          accountNumber,
-          accountType: accountRequest.accountType,
-          status: "ACTIVE",
-          currency: "INR",
-          balance: 0
-        }
-      });
-
-      // Save the approval in the audit log
-      await tx.auditLog.create({
-        data: {
-          actorUserId: req.user.id,
-          action: "ACCOUNT_APPROVED",
-          entityType: "ACCOUNT",
-          entityId: account.id
-        }
-      });
-
-      return account;
-    });
-
-    if (!result) {
-      return res.status(404).json({
-        message: "Pending account request not found"
-      });
-    }
-
-    return res.status(200).json({
-      message: "Account approved successfully",
-      account: result
-    });
-
-  } catch (error) {
-    console.error("Account approval error:", error.message);
-
-    return res.status(500).json({
-      message: "Unable to approve account request"
-    });
-  }
-});
-
-// 4. View all pending account requests
+// ==========================================
+// 3. GET ALL PENDING ACCOUNT REQUESTS
+// ==========================================
 router.get("/pending-account-requests", async (req, res) => {
   try {
     const requests = await prisma.accountRequest.findMany({
@@ -210,12 +131,94 @@ router.get("/pending-account-requests", async (req, res) => {
       count: requests.length,
       requests
     });
-
   } catch (error) {
-    console.error("Pending account requests error:", error.message);
+    console.error("Pending account requests error:", error);
 
     return res.status(500).json({
       message: "Unable to retrieve pending account requests"
+    });
+  }
+});
+
+// ==========================================
+// 4. APPROVE PENDING ACCOUNT REQUEST
+// ==========================================
+router.patch("/approve-account/:requestId", async (req, res) => {
+  try {
+    const { requestId } = req.params;
+
+    const account = await prisma.$transaction(async (tx) => {
+      // Find the pending request
+      const accountRequest = await tx.accountRequest.findUnique({
+        where: {
+          id: requestId
+        }
+      });
+
+      if (!accountRequest || accountRequest.status !== "PENDING") {
+        return null;
+      }
+
+      // Change request status only if it is still pending
+      const updated = await tx.accountRequest.updateMany({
+        where: {
+          id: requestId,
+          status: "PENDING"
+        },
+        data: {
+          status: "APPROVED",
+          reviewedById: req.user.id
+        }
+      });
+
+      if (updated.count !== 1) {
+        return null;
+      }
+
+      // Create a unique account number
+      const accountNumber =
+        "BV" + crypto.randomBytes(8).toString("hex").toUpperCase();
+
+      // Create the bank account
+      const newAccount = await tx.account.create({
+        data: {
+          ownerId: accountRequest.requestedById,
+          accountNumber,
+          accountType: accountRequest.accountType,
+          status: "ACTIVE",
+          currency: "INR",
+          balance: 0
+        }
+      });
+
+      // Record the approval in audit log
+      await tx.auditLog.create({
+        data: {
+          actorUserId: req.user.id,
+          action: "ACCOUNT_APPROVED",
+          entityType: "ACCOUNT",
+          entityId: newAccount.id
+        }
+      });
+
+      return newAccount;
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        message: "Pending account request not found or already approved"
+      });
+    }
+
+    return res.status(200).json({
+      message: "Account approved successfully",
+      account
+    });
+  } catch (error) {
+    console.error("Account approval error:", error);
+
+    return res.status(500).json({
+      message: "Unable to approve account request"
     });
   }
 });

@@ -8,6 +8,7 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [token, setToken] = useState("");
+  const [user, setUser] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -32,14 +33,21 @@ function App() {
         throw new Error(data.message || "Login failed");
       }
 
-      if (!data.token) {
-        throw new Error("Login response did not contain a token");
+      if (!data.token || !data.user) {
+        throw new Error("Login response is incomplete");
+      }
+
+      if (!["ADMIN", "CUSTOMER"].includes(data.user.role)) {
+        throw new Error("Invalid user role");
       }
 
       setToken(data.token);
+      setUser(data.user);
       setMessage("Login successful!");
 
-      await loadAccounts(data.token);
+      if (data.user.role === "CUSTOMER") {
+        await loadAccounts(data.token);
+      }
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -69,6 +77,7 @@ function App() {
 
   function handleLogout() {
     setToken("");
+    setUser(null);
     setAccounts([]);
     setEmail("");
     setPassword("");
@@ -118,8 +127,18 @@ function App() {
           <section className="dashboard">
             <div className="dashboard-heading">
               <div>
-                <h2>Customer Dashboard</h2>
-                <p>Welcome to BalanceVault!</p>
+                <h2>
+                  {user?.role === "ADMIN"
+                    ? "Admin Dashboard"
+                    : "Customer Dashboard"}
+                </h2>
+
+                <p>
+                  Welcome to BalanceVault,{" "}
+                  {user?.fullName || user?.email}!
+                </p>
+
+                <p>Role: {user?.role}</p>
               </div>
 
               <button className="logout" onClick={handleLogout}>
@@ -127,24 +146,42 @@ function App() {
               </button>
             </div>
 
-            <h3>My Accounts</h3>
-
-            {accounts.length === 0 ? (
-              <p>No accounts found.</p>
+            {user?.role === "ADMIN" ? (
+              <div className="admin-section">
+                <h3>Administrator Access</h3>
+                <p>Welcome, Administrator!</p>
+                <p>
+                  You are logged in with administrator privileges.
+                </p>
+                <p>
+                  Account request management will be available here.
+                </p>
+              </div>
             ) : (
-              <div className="account-list">
-                {accounts.map((account) => (
-                  <div className="account-card" key={account.id}>
-                    <h3>{account.accountType} Account</h3>
-                    <p>
-                      Account Number: {account.accountNumber}
-                    </p>
-                    <p>Status: {account.status}</p>
-                    <h2>
-                      {account.currency} {account.balance}
-                    </h2>
+              <div className="customer-section">
+                <h3>My Accounts</h3>
+
+                {accounts.length === 0 ? (
+                  <p>No accounts found.</p>
+                ) : (
+                  <div className="account-list">
+                    {accounts.map((account) => (
+                      <div className="account-card" key={account.id}>
+                        <h3>{account.accountType} Account</h3>
+
+                        <p>
+                          Account Number: {account.accountNumber}
+                        </p>
+
+                        <p>Status: {account.status}</p>
+
+                        <h2>
+                          {account.currency} {account.balance}
+                        </h2>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
 
